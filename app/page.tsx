@@ -4,75 +4,127 @@ import { useMemo, useState } from "react";
 
 export default function Page() {
   const [prompt, setPrompt] = useState(
-    "生成一張穿搭示意圖：黑色短版皮衣、白色上衣、深藍直筒牛仔褲、白色球鞋；乾淨背景、偏寫實商品攝影風格。"
+    "生成一張穿搭示意圖：黑色短版皮衣、白色上衣、深藍直筒牛仔褲、白色球鞋；乾淨背景；偏寫實商品攝影風格。"
   );
-  const [loading, setLoading] = useState(false);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [health, setHealth] = useState<string>("");
+  const [loadingHealth, setLoadingHealth] = useState(false);
 
-  const canSubmit = useMemo(() => prompt.trim().length > 0 && !loading, [prompt, loading]);
+  const [loadingImg, setLoadingImg] = useState(false);
+  const [errMsg, setErrMsg] = useState<string>("");
+  const [imgSrc, setImgSrc] = useState<string>("");
+
+  const canGenerate = useMemo(() => prompt.trim().length > 0, [prompt]);
+
+  async function onHealth() {
+    setErrMsg("");
+    setHealth("");
+    setLoadingHealth(true);
+    try {
+      const res = await fetch("/api/health", { cache: "no-store" });
+      const data = await res.json();
+      setHealth(JSON.stringify(data));
+    } catch (e: any) {
+      setErrMsg(e?.message || "Health check failed");
+    } finally {
+      setLoadingHealth(false);
+    }
+  }
 
   async function onGenerate() {
-    setLoading(true);
-    setError(null);
-    setImageUrl(null);
-
+    setErrMsg("");
+    setImgSrc("");
+    setLoadingImg(true);
     try {
-      const res = await fetch("/api/outfit-image", {
+      const res = await fetch("/api/outfit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(data?.error ?? "Unknown error");
+        throw new Error(data?.error || "Generate failed");
+      }
+
+      if (data?.imageBase64) {
+        setImgSrc(`data:image/png;base64,${data.imageBase64}`);
+        return;
+      }
+      if (data?.imageUrl) {
+        setImgSrc(data.imageUrl);
         return;
       }
 
-      setImageUrl(data.imageDataUrl);
+      throw new Error("No image returned");
     } catch (e: any) {
-      setError(e?.message ?? "Network error");
+      setErrMsg(e?.message || "Generate failed");
     } finally {
-      setLoading(false);
+      setLoadingImg(false);
     }
   }
 
   return (
-    <main className="card">
-      <h1 style={{ marginTop: 0 }}>Wardrobe AI（Vercel 版）</h1>
-
-      <p className="small" style={{ marginTop: 6 }}>
-        你需要在 Vercel 設定環境變數：<b>OPENAI_API_KEY</b>
-      </p>
-
-      <div style={{ marginTop: 14 }}>
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-      </div>
-
-      <div className="row" style={{ marginTop: 12, alignItems: "center" }}>
-        <button onClick={onGenerate} disabled={!canSubmit}>
-          {loading ? "生成中…" : "生成穿搭圖片"}
-        </button>
-
-        <a className="small" href="/api/health" target="_blank" rel="noreferrer">
-          測試 /api/health
-        </a>
-      </div>
-
-      {error && (
-        <div style={{ marginTop: 12, color: "#ffb4b4" }}>
-          <b>錯誤：</b>
-          {error}
+    <div className="container">
+      <div className="card">
+        <div className="header">
+          <div className="h1">Wardrobe AI（Vercel 版）</div>
+          <div className="sub">
+            你需要在 Vercel 設定環境變數：<b>OPENAI_API_KEY</b>
+            <br />
+            （可選）<b>OPENAI_IMAGE_MODEL</b>，預設使用 <b>gpt-image-1</b>
+          </div>
         </div>
-      )}
 
-      {imageUrl && (
-        <div style={{ marginTop: 14 }}>
-          <img className="img" src={imageUrl} alt="Generated outfit" />
+        <div className="row">
+          <span className="pill">API：/api/outfit（POST）</span>
+          <span className="pill">API：/api/health（GET）</span>
         </div>
-      )}
-    </main>
+
+        <div className="hr" />
+
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="輸入你想要的穿搭與風格描述…"
+        />
+
+        <div className="row" style={{ marginTop: 12 }}>
+          <button
+            className="btn btnPrimary"
+            onClick={onGenerate}
+            disabled={!canGenerate || loadingImg}
+          >
+            {loadingImg ? "生成中…" : "生成穿搭圖片"}
+          </button>
+
+          <button className="btn" onClick={onHealth} disabled={loadingHealth}>
+            {loadingHealth ? "測試中…" : "測試 /api/health"}
+          </button>
+        </div>
+
+        {(errMsg || health) && (
+          <div
+            className={`alert ${errMsg ? "alertError" : ""}`}
+            style={{ marginTop: 12 }}
+          >
+            {errMsg ? errMsg : `Health: ${health}`}
+          </div>
+        )}
+
+        {imgSrc && (
+          <div className="preview">
+            <div className="imgWrap">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={imgSrc} alt="outfit" />
+            </div>
+            <div className="alert">
+              如果你看到的是空白頁，代表你先前用「連結」方式打開 API。
+              現在這版已改成在同頁用 fetch 顯示，不會再跳走。
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

@@ -3,29 +3,42 @@ import OpenAI from "openai";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const { wardrobe } = await req.json();
+  try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return Response.json(
+        { error: "Missing OPENAI_API_KEY in environment variables." },
+        { status: 400 }
+      );
+    }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return Response.json({ error: "Missing OPENAI_API_KEY" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const prompt =
+      typeof body?.prompt === "string" && body.prompt.trim()
+        ? body.prompt.trim()
+        : "Generate a realistic outfit flat-lay photo with clean background.";
 
-  const openai = new OpenAI({ apiKey });
+    const client = new OpenAI({ apiKey });
 
-  const prompt = `
-Generate a clean, full-body fashion illustration (not a photo), dark background.
-Outfit must be based on this wardrobe/context:
-${wardrobe}
+    // 官方 Images API：client.images.generate({ model, prompt, size, ... })
+    const img = await client.images.generate({
+      model: "gpt-image-1.5",
+      prompt,
+      size: "1024x1024"
+    });
 
-Style: modern minimal, clear silhouette, realistic proportions, no brand logos, no text.
-`;
+    const b64 = img.data?.[0]?.b64_json;
+    if (!b64) {
+      return Response.json({ error: "No image returned from OpenAI." }, { status: 502 });
+    }
 
-  const result = await openai.images.generate({
-    model: "gpt-image-1",
-    prompt
-  });
-
-  const b64 = result.data?.[0]?.b64_json;
-  if (!b64) return Response.json({ error: "No image returned" }, { status: 500 });
-
-  const dataUrl = `data:image/png;base64,${b64}`;
-  return Response.json({ dataUrl });
+    const imageDataUrl = `data:image/png;base64,${b64}`;
+    return Response.json({ imageDataUrl });
+  } catch (err: any) {
+    // 把錯誤訊息帶回前端方便你排查（不要把 apiKey 印出來）
+    return Response.json(
+      { error: err?.message ?? "Unexpected server error" },
+      { status: 500 }
+    );
+  }
 }

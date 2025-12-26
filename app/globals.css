@@ -1,20 +1,22 @@
-:root{
-  /* Morandi palette (可自行微調) */
-  --bg: #f1eee7;          /* 奶油米灰 */
-  --surface: #fbf8f2;     /* 卡片底 */
-  --surface2: #f6f2ea;    /* 次卡片/區塊 */
-  --text: #3c3a36;        /* 深灰棕 */
-  --muted: #7a756c;       /* 灰棕 */
-  --muted2:#a39c91;       /* 更淡 */
-  --border: rgba(60,58,54,.10);
+::root{
+  /* Warm Morandi (偏暖：奶茶 / 燕麥 / 暖灰 / 霧玫瑰) */
+  --bg: #f3efe6;          /* 奶油燕麥底 */
+  --surface: #fbf7ef;     /* 卡片底（暖白但不刺眼） */
+  --surface2: #f6f1e7;    /* 次卡片/區塊 */
+  --text: #3f3a35;        /* 暖深灰棕 */
+  --muted: #7b746b;       /* 暖灰棕 */
+  --muted2:#a59d91;       /* 更淡 */
 
-  --accent: #a48fb2;      /* 莫蘭迪紫（主色） */
-  --accent2:#b7929c;      /* 霧玫瑰（輔色） */
-  --ok: #87a38d;          /* 霧綠 */
-  --danger: #c08a86;      /* 霧紅 */
+  --border: rgba(63,58,53,.10);
 
-  --shadow: 0 18px 45px rgba(60,58,54,.10);
-  --shadow2: 0 10px 24px rgba(60,58,54,.08);
+  --accent: #b092a6;      /* 霧紫玫瑰（主色） */
+  --accent2:#c3a08b;      /* 奶茶棕（輔色/點綴） */
+  --ok: #8ea190;          /* 霧綠 */
+  --danger: #c1918b;      /* 暖霧紅 */
+
+  --shadow: 0 18px 45px rgba(63,58,53,.10);
+  --shadow2: 0 10px 24px rgba(63,58,53,.08);
+
   --radius-xl: 26px;
   --radius-lg: 22px;
   --radius-md: 18px;

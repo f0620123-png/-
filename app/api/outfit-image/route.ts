@@ -2,51 +2,42 @@ import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return Response.json({ error: "Missing OPENAI_API_KEY in Vercel Environment Variables" }, { status: 400 });
+    if (!process.env.OPENAI_API_KEY) {
+      return Response.json({ error: "Missing OPENAI_API_KEY" }, { status: 400 });
     }
 
     const body = await req.json();
     const text = String(body?.text ?? "").trim();
-    if (!text) {
-      return Response.json({ error: "Missing text" }, { status: 400 });
-    }
+    if (!text) return Response.json({ error: "Missing text" }, { status: 400 });
 
-    const model = process.env.OPENAI_IMAGE_MODEL || "gpt-5";
+    const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
 
     const prompt = [
-      "請根據以下穿搭建議，生成一張『乾淨背景、偏電商商品攝影風格』的穿搭示意圖。",
-      "要求：人物站姿全身、光線自然、衣物材質清楚、不要文字浮水印。",
+      "請依下列穿搭建議，生成一張「全身人物穿搭示意圖」。",
+      "風格：電商商品攝影感、柔光、背景乾淨（米白/淺灰）。",
+      "限制：不要文字、不要品牌Logo、不要水印。",
       "",
-      "穿搭內容：",
-      text
+      "穿搭建議：",
+      text,
     ].join("\n");
 
-    // 使用 Responses API 的 image_generation tool 產生 base64 圖片  [oai_citation:2‡OpenAI 平台](https://platform.openai.com/docs/guides/image-generation)
-    const response = await openai.responses.create({
+    const img = await openai.images.generate({
       model,
-      input: prompt,
-      tools: [{ type: "image_generation" }]
+      prompt,
+      size: "1024x1024",
     });
 
-    const imageData = (response as any).output
-      .filter((o: any) => o.type === "image_generation_call")
-      .map((o: any) => o.result);
+    const b64 = img.data?.[0]?.b64_json;
+    if (!b64) return Response.json({ error: "No image returned" }, { status: 500 });
 
-    if (!imageData?.length) {
-      return Response.json({ error: "No image returned" }, { status: 500 });
-    }
-
-    return Response.json({ imageBase64: imageData[0] });
+    return Response.json({
+      imageDataUrl: `data:image/png;base64,${b64}`,
+    });
   } catch (err: any) {
-    const msg = err?.message ?? "Unknown error";
-    return Response.json({ error: msg }, { status: 500 });
+    return Response.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

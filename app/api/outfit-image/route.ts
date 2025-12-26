@@ -2,43 +2,51 @@ import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
 export async function POST(req: Request) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return Response.json(
-        { error: "Missing OPENAI_API_KEY in environment variables." },
-        { status: 400 }
-      );
+      return Response.json({ error: "Missing OPENAI_API_KEY in Vercel Environment Variables" }, { status: 400 });
     }
 
-    const body = await req.json().catch(() => ({}));
-    const prompt =
-      typeof body?.prompt === "string" && body.prompt.trim()
-        ? body.prompt.trim()
-        : "Generate a realistic outfit flat-lay photo with clean background.";
+    const body = await req.json();
+    const text = String(body?.text ?? "").trim();
+    if (!text) {
+      return Response.json({ error: "Missing text" }, { status: 400 });
+    }
 
-    const client = new OpenAI({ apiKey });
+    const model = process.env.OPENAI_IMAGE_MODEL || "gpt-5";
 
-    // 官方 Images API：client.images.generate({ model, prompt, size, ... })
-    const img = await client.images.generate({
-      model: "gpt-image-1.5",
-      prompt,
-      size: "1024x1024"
+    const prompt = [
+      "請根據以下穿搭建議，生成一張『乾淨背景、偏電商商品攝影風格』的穿搭示意圖。",
+      "要求：人物站姿全身、光線自然、衣物材質清楚、不要文字浮水印。",
+      "",
+      "穿搭內容：",
+      text
+    ].join("\n");
+
+    // 使用 Responses API 的 image_generation tool 產生 base64 圖片  [oai_citation:2‡OpenAI 平台](https://platform.openai.com/docs/guides/image-generation)
+    const response = await openai.responses.create({
+      model,
+      input: prompt,
+      tools: [{ type: "image_generation" }]
     });
 
-    const b64 = img.data?.[0]?.b64_json;
-    if (!b64) {
-      return Response.json({ error: "No image returned from OpenAI." }, { status: 502 });
+    const imageData = (response as any).output
+      .filter((o: any) => o.type === "image_generation_call")
+      .map((o: any) => o.result);
+
+    if (!imageData?.length) {
+      return Response.json({ error: "No image returned" }, { status: 500 });
     }
 
-    const imageDataUrl = `data:image/png;base64,${b64}`;
-    return Response.json({ imageDataUrl });
+    return Response.json({ imageBase64: imageData[0] });
   } catch (err: any) {
-    // 把錯誤訊息帶回前端方便你排查（不要把 apiKey 印出來）
-    return Response.json(
-      { error: err?.message ?? "Unexpected server error" },
-      { status: 500 }
-    );
+    const msg = err?.message ?? "Unknown error";
+    return Response.json({ error: msg }, { status: 500 });
   }
 }

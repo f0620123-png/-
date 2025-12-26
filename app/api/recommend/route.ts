@@ -2,15 +2,12 @@ import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return Response.json({ error: "Missing OPENAI_API_KEY in Vercel Environment Variables" }, { status: 400 });
+    if (!process.env.OPENAI_API_KEY) {
+      return Response.json({ error: "Missing OPENAI_API_KEY" }, { status: 400 });
     }
 
     const body = await req.json();
@@ -21,39 +18,38 @@ export async function POST(req: Request) {
       return Response.json({ error: "Invalid payload: wardrobe must be an array" }, { status: 400 });
     }
 
-    const model = process.env.OPENAI_TEXT_MODEL || "gpt-5";
+    const model = process.env.OPENAI_TEXT_MODEL || "gpt-4o-mini";
 
-    const input = [
-      {
-        role: "system",
-        content:
-          "你是專業穿搭顧問。請使用繁體中文回答。請只用使用者衣櫃中存在的單品來組合穿搭；若缺少必要類別（例如鞋子/外套/下身），請在結果中清楚指出缺口並給出補齊建議。"
-      },
-      {
-        role: "user",
-        content: [
-          `情境：${String(context.scene ?? "不指定")}`,
-          context.weather ? `天氣：${String(context.weather)}` : "",
-          "",
-          "衣櫃清單（JSON）：",
-          JSON.stringify(wardrobe)
-        ]
-          .filter(Boolean)
-          .join("\n")
-      }
-    ];
+    const system = [
+      "你是專業穿搭顧問，請用繁體中文回答。",
+      "只用使用者衣櫃清單中存在的單品做主要搭配；若不足，再提出缺口補強。",
+      "輸出格式固定為：",
+      "1) 今日推薦（內搭/上衣/下著/外套/鞋子/配件）",
+      "2) 為何這樣搭（3-6點，具體、短句）",
+      "3) 替代方案（至少2套）",
+      "4) 補強清單（只列品項，不要品牌）",
+    ].join("\n");
 
-    const response = await openai.responses.create({
+    const user = [
+      `情境(scene)：${String(context?.scene ?? "日常")}`,
+      `風格(style)：${String(context?.style ?? "隨機")}`,
+      `天氣(weather)：${String(context?.weather ?? "未提供")}`,
+      `備註(note)：${String(context?.note ?? "無")}`,
+      "",
+      "衣櫃清單（JSON）：",
+      JSON.stringify(wardrobe).slice(0, 14000),
+    ].join("\n");
+
+    const r = await openai.responses.create({
       model,
-      input
+      input: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
     });
 
-    // Node SDK 會提供 output_text 方便你直接取文字結果  [oai_citation:1‡OpenAI 平台](https://platform.openai.com/docs/guides/tools-image-generation?utm_source=chatgpt.com)
-    const text = (response as any).output_text ?? "";
-
-    return Response.json({ text });
+    return Response.json({ text: r.output_text });
   } catch (err: any) {
-    const msg = err?.message ?? "Unknown error";
-    return Response.json({ error: msg }, { status: 500 });
+    return Response.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

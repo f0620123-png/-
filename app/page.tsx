@@ -43,7 +43,6 @@ function safeParse<T>(s: string | null): T | null {
 }
 
 function Icon({ name }: { name: "closet" | "layers" | "bag" | "user" }) {
-  // 簡單的 inline SVG（避免額外套件）
   const common = { className: "ico", viewBox: "0 0 24 24", fill: "none" as const, stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   if (name === "closet") {
     return (
@@ -184,18 +183,19 @@ export default function Page() {
     setMColor("");
     setManualOpen(false);
     setAddOpen(false);
+    setTab("wardrobe");
   }
 
   const presets = useMemo(
     () => [
-      { name: "長袖打底（白）", category: "內搭" as Category, color: "#e8e3db" },
-      { name: "長袖打底（黑）", category: "內搭" as Category, color: "#3f3b39" },
-      { name: "短袖T恤（白）", category: "上衣" as Category, color: "#efeae2" },
-      { name: "短袖T恤（黑）", category: "上衣" as Category, color: "#4a4543" },
-      { name: "連帽外套（灰）", category: "外套" as Category, color: "#9ea0a2" },
-      { name: "牛仔外套", category: "外套" as Category, color: "#7f8fa3" },
-      { name: "牛仔寬褲", category: "下著" as Category, color: "#86a1b7" },
-      { name: "直筒牛仔褲", category: "下著" as Category, color: "#6f93b3" },
+      { name: "長袖打底（奶油白）", category: "內搭" as Category, color: "#efe5d8" },
+      { name: "長袖打底（咖灰）", category: "內搭" as Category, color: "#504a45" },
+      { name: "短袖T恤（燕麥）", category: "上衣" as Category, color: "#e7dccd" },
+      { name: "短袖T恤（煙黑）", category: "上衣" as Category, color: "#47423e" },
+      { name: "針織外套（奶茶）", category: "外套" as Category, color: "#cdb6a4" },
+      { name: "牛仔外套（灰藍）", category: "外套" as Category, color: "#7f8fa3" },
+      { name: "直筒褲（暖灰）", category: "下著" as Category, color: "#a9a29a" },
+      { name: "休閒鞋（米白）", category: "鞋子" as Category, color: "#f0e7dc" },
     ],
     []
   );
@@ -227,10 +227,11 @@ export default function Page() {
         }),
       });
       const data = await res.json();
-      const text = String(data?.text ?? data?.result ?? data?.recommendation ?? "").trim();
-      setRecText(text || "沒有取得推薦文字（請檢查 /api/recommend 回傳格式）");
+      if (!res.ok) throw new Error(data?.error || "recommend failed");
+      const text = String(data?.text ?? "").trim();
+      setRecText(text || "（沒有取得推薦文字）");
     } catch (e: any) {
-      setRecText("推薦呼叫失敗，請確認 Vercel 環境變數與 /api/recommend。");
+      setRecText(`推薦呼叫失敗：${e?.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -247,11 +248,12 @@ export default function Page() {
         body: JSON.stringify({ text: recText }),
       });
       const data = await res.json();
-      const url = String(data?.imageDataUrl ?? data?.dataUrl ?? data?.url ?? "").trim();
+      if (!res.ok) throw new Error(data?.error || "image failed");
+      const url = String(data?.imageDataUrl ?? "").trim();
       setOutfitImg(url);
-      if (!url) setRecText((t) => t + "\n\n（已呼叫 /api/outfit-image，但未取得 imageDataUrl/dataUrl/url）");
-    } catch {
-      setRecText((t) => t + "\n\n（生成圖片失敗：請確認 /api/outfit-image 與 OpenAI key）");
+      if (!url) setRecText((t) => t + "\n\n（未取得 imageDataUrl）");
+    } catch (e: any) {
+      setRecText((t) => t + `\n\n（生成圖片失敗：${e?.message || e}）`);
     } finally {
       setBusy(false);
     }
@@ -285,6 +287,7 @@ export default function Page() {
                 <div className="card" key={x.id}>
                   <div className="cardImg">
                     {x.imageDataUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={x.imageDataUrl} alt={x.name} />
                     ) : (
                       <div
@@ -293,8 +296,8 @@ export default function Page() {
                           height: "100%",
                           display: "grid",
                           placeItems: "center",
-                          color: "rgba(60,58,54,.55)",
-                          fontWeight: 900,
+                          color: "rgba(63,58,53,.55)",
+                          fontWeight: 1000,
                           fontSize: 28,
                         }}
                       >
@@ -323,10 +326,10 @@ export default function Page() {
               MIX & MATCH
             </div>
             <div className="h1">自選穿搭</div>
-            <div className="sub">先把衣櫃補齊，再來這裡組套裝會最順</div>
+            <div className="sub">這頁先做成外觀與流程（示意），下一步再接「點選衣物組合」</div>
 
             <div className="panel" style={{ marginTop: 10 }}>
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>選擇搭配（示意）</div>
+              <div style={{ fontWeight: 1000, marginBottom: 10 }}>選擇搭配（示意）</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <DashBox label="內搭" />
                 <DashBox label="上衣" />
@@ -338,7 +341,7 @@ export default function Page() {
 
               <div style={{ marginTop: 14 }} className="smallRow">
                 <button className="btnGhost" onClick={() => setTab("wardrobe")}>
-                  去衣櫃選單品
+                  去衣櫃新增/刪除
                 </button>
                 <button className="btnPrimary" onClick={() => setTab("inspire")}>
                   去看今日推薦
@@ -358,7 +361,7 @@ export default function Page() {
             <div className="sub">依情境與風格，從你的衣櫃生成建議</div>
 
             <div className="panel">
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>第一步：今天要去哪？</div>
+              <div style={{ fontWeight: 1000, marginBottom: 10 }}>第一步：今天要去哪？</div>
               <div className="rowScroll">
                 {(["日常", "上班", "約會", "運動", "度假", "派對"] as const).map((x) => (
                   <button key={x} className={scene === x ? "chip chipActive" : "chip"} onClick={() => setScene(x)}>
@@ -367,7 +370,7 @@ export default function Page() {
                 ))}
               </div>
 
-              <div style={{ fontWeight: 900, margin: "12px 0 10px" }}>第二步：想走什麼風格？</div>
+              <div style={{ fontWeight: 1000, margin: "12px 0 10px" }}>第二步：想走什麼風格？</div>
               <div className="rowScroll">
                 {(["隨機", "極簡", "街頭", "日系", "韓系", "復古", "Smart Casual", "運動風", "老錢風", "Gorpcore"] as const).map((x) => (
                   <button key={x} className={style === x ? "chip chipActive" : "chip"} onClick={() => setStyle(x)}>
@@ -391,8 +394,8 @@ export default function Page() {
               {recText && (
                 <div style={{ marginTop: 12 }}>
                   <div className="label">推薦結果</div>
-                  <div className="panel" style={{ background: "rgba(255,255,255,.60)" }}>
-                    <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontWeight: 750 }}>{recText}</div>
+                  <div className="panel" style={{ background: "rgba(255,255,255,.50)" }}>
+                    <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontWeight: 900 }}>{recText}</div>
                   </div>
 
                   <div style={{ marginTop: 10 }} className="smallRow">
@@ -406,10 +409,13 @@ export default function Page() {
 
                   {outfitImg && (
                     <div style={{ marginTop: 12 }} className="panel">
-                      <div style={{ fontWeight: 900, marginBottom: 10 }}>生成圖片</div>
-                      {/* 可能是 dataURL 或 URL */}
+                      <div style={{ fontWeight: 1000, marginBottom: 10 }}>生成圖片</div>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={outfitImg} alt="outfit" style={{ width: "100%", borderRadius: 18, border: "1px solid rgba(60,58,54,.10)" }} />
+                      <img
+                        src={outfitImg}
+                        alt="outfit"
+                        style={{ width: "100%", borderRadius: 18, border: "1px solid rgba(63,58,53,.10)" }}
+                      />
                     </div>
                   )}
                 </div>
@@ -428,7 +434,7 @@ export default function Page() {
             <div className="sub">資料都存在本機 LocalStorage（目前不做雲端同步）</div>
 
             <div className="panel">
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>快速操作</div>
+              <div style={{ fontWeight: 1000, marginBottom: 10 }}>快速操作</div>
               <div className="smallRow">
                 <button className="btnGhost" onClick={() => setQuickOpen(true)}>
                   ⚡ 快速加入基礎單品
@@ -443,6 +449,10 @@ export default function Page() {
                 >
                   清空衣櫃
                 </button>
+              </div>
+
+              <div style={{ marginTop: 12, color: "rgba(63,58,53,.65)", fontWeight: 900, fontSize: 12 }}>
+                若你要「自選穿搭可點選衣物組合」與「依所在地自動抓氣溫」，下一步我會把 mix 頁接上選擇器與天氣 API。
               </div>
             </div>
           </>
@@ -567,7 +577,7 @@ export default function Page() {
               ))}
             </div>
 
-            <div className="label">色系（可不填，例如：奶茶/灰藍/霧紫）</div>
+            <div className="label">色系（可不填，例如：奶茶/暖灰/霧玫瑰）</div>
             <input className="input" value={mColor} onChange={(e) => setMColor(e.target.value)} placeholder="莫蘭迪色描述" />
 
             <div style={{ marginTop: 12 }} className="smallRow">
@@ -602,15 +612,15 @@ function DashBox({ label, wide }: { label: string; wide?: boolean }) {
     <div
       style={{
         gridColumn: wide ? "1 / -1" : undefined,
-        border: "2px dashed rgba(60,58,54,.14)",
+        border: "2px dashed rgba(63,58,53,.14)",
         borderRadius: 22,
         height: wide ? 120 : 130,
         display: "grid",
         placeItems: "center",
-        background: "rgba(255,255,255,.40)",
+        background: "rgba(255,255,255,.35)",
       }}
     >
-      <div style={{ color: "rgba(60,58,54,.55)", fontWeight: 900 }}>{label}</div>
+      <div style={{ color: "rgba(63,58,53,.55)", fontWeight: 1000 }}>{label}</div>
     </div>
   );
 }

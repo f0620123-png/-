@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "MY WARDROBE",
-  description: "衣櫃管理 + 日常穿搭推薦",
+  title: "SmartCloset AI",
+  description: "衣櫃管理 + 天氣穿搭推薦 + AI示意圖",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
 
-        {/* 這個 footer 的版本字是用來「驗證你看到的是最新部署」 */}
+        {/* 用來驗證你看到的是最新部署（避免 Vercel / Safari 快取） */}
         <footer
           style={{
             position: "fixed",
@@ -23,9 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             color: "rgba(63,58,53,.55)",
             textAlign: "center",
             pointerEvents: "none",
+            zIndex: 80,
           }}
         >
-          v2025-12-26-1
+          v2025-12-26-closet-1
         </footer>
       </body>
     </html>

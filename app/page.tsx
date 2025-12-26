@@ -1,29 +1,39 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-type Category = "上衣" | "下身" | "外套" | "鞋子" | "配件" | "其他";
-type Season = "春" | "夏" | "秋" | "冬" | "四季";
-type Occasion = "通勤" | "休閒" | "約會" | "運動" | "正式" | "不指定";
+type TabKey = "wardrobe" | "mix" | "inspire" | "me";
+
+type Category =
+  | "上衣"
+  | "下著"
+  | "內搭"
+  | "外套"
+  | "鞋子"
+  | "配件"
+  | "連身"
+  | "背心"
+  | "襪子";
 
 type WardrobeItem = {
   id: string;
   name: string;
   category: Category;
   color?: string;
-  season?: Season;
-  occasion?: Occasion;
   note?: string;
+  imageDataUrl?: string; // localStorage 保存圖片 dataURL
   createdAt: number;
 };
 
-const LS_KEY = "wardrobe_ai_items_v1";
+const LS_ITEMS = "my_wardrobe_items_v2";
+
+const CATEGORIES: Category[] = ["上衣", "下著", "內搭", "外套", "鞋子", "配件", "連身", "背心", "襪子"];
 
 function uid() {
-  return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
+  return Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
 }
 
-function safeParseJson<T>(s: string | null): T | null {
+function safeParse<T>(s: string | null): T | null {
   if (!s) return null;
   try {
     return JSON.parse(s) as T;
@@ -32,404 +42,584 @@ function safeParseJson<T>(s: string | null): T | null {
   }
 }
 
+function Icon({ name }: { name: "closet" | "layers" | "bag" | "user" }) {
+  // 簡單的 inline SVG（避免額外套件）
+  const common = { className: "ico", viewBox: "0 0 24 24", fill: "none" as const, stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (name === "closet") {
+    return (
+      <svg {...common}>
+        <path d="M7 3h10a2 2 0 0 1 2 2v16H5V5a2 2 0 0 1 2-2z" />
+        <path d="M9 7h.01M15 7h.01" />
+        <path d="M12 3v18" />
+      </svg>
+    );
+  }
+  if (name === "layers") {
+    return (
+      <svg {...common}>
+        <path d="M12 3 2 9l10 6 10-6-10-6z" />
+        <path d="M2 15l10 6 10-6" />
+      </svg>
+    );
+  }
+  if (name === "bag") {
+    return (
+      <svg {...common}>
+        <path d="M6 8h12l-1 13H7L6 8z" />
+        <path d="M9 8a3 3 0 0 1 6 0" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M20 21a8 8 0 1 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
+function Sheet({
+  open,
+  title,
+  icon,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  icon?: React.ReactNode;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="sheetOverlay" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHeader">
+          <div className="sheetTitle">
+            <span className="bolt">{icon}</span>
+            {title}
+          </div>
+          <button className="sheetClose" onClick={onClose} aria-label="close">
+            ✕
+          </button>
+        </div>
+        <div className="sheetBody">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Page() {
+  const [tab, setTab] = useState<TabKey>("wardrobe");
+  const [categoryFilter, setCategoryFilter] = useState<Category | "全部">("全部");
+
   const [items, setItems] = useState<WardrobeItem[]>([]);
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState<Category | "全部">("全部");
+  const [addOpen, setAddOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
 
-  // add form
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState<Category>("上衣");
-  const [color, setColor] = useState("");
-  const [season, setSeason] = useState<Season>("四季");
-  const [occasion, setOccasion] = useState<Occasion>("不指定");
-  const [note, setNote] = useState("");
+  // 手動新增
+  const [manualOpen, setManualOpen] = useState(false);
+  const [mName, setMName] = useState("");
+  const [mCategory, setMCategory] = useState<Category>("上衣");
+  const [mColor, setMColor] = useState("");
 
-  // recommend
-  const [scene, setScene] = useState<Occasion>("通勤");
+  // 推薦（inspire）
+  const [scene, setScene] = useState<"日常" | "上班" | "約會" | "運動" | "度假" | "派對">("日常");
+  const [style, setStyle] = useState<"隨機" | "極簡" | "街頭" | "日系" | "韓系" | "復古" | "Smart Casual" | "運動風" | "老錢風" | "Gorpcore">("隨機");
   const [weather, setWeather] = useState("");
-  const [recommendText, setRecommendText] = useState<string>("");
-  const [recommendLoading, setRecommendLoading] = useState(false);
-  const [recommendError, setRecommendError] = useState<string>("");
+  const [note, setNote] = useState("");
+  const [recText, setRecText] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [outfitImg, setOutfitImg] = useState<string>("");
 
-  // image
-  const [imageLoading, setImageLoading] = useState(false);
-  const [imageBase64, setImageBase64] = useState<string>("");
-  const [imageError, setImageError] = useState<string>("");
-
-  // env status
-  const [health, setHealth] = useState<{ ok: boolean; hasKey: boolean; ts: number } | null>(null);
+  // file inputs
+  const fileLibraryRef = useRef<HTMLInputElement | null>(null);
+  const fileCameraRef = useRef<HTMLInputElement | null>(null);
+  const fileAnyRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const saved = safeParseJson<WardrobeItem[]>(localStorage.getItem(LS_KEY));
-    if (Array.isArray(saved)) setItems(saved);
+    const saved = safeParse<WardrobeItem[]>(localStorage.getItem(LS_ITEMS));
+    if (saved && Array.isArray(saved)) setItems(saved);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify(items));
+    localStorage.setItem(LS_ITEMS, JSON.stringify(items));
   }, [items]);
 
-  useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then((j) => setHealth(j))
-      .catch(() => setHealth({ ok: false, hasKey: false, ts: Date.now() }));
-  }, []);
-
   const filtered = useMemo(() => {
-    const kw = q.trim().toLowerCase();
-    return items
-      .filter((it) => (cat === "全部" ? true : it.category === cat))
-      .filter((it) => {
-        if (!kw) return true;
-        const hay = [it.name, it.category, it.color ?? "", it.season ?? "", it.occasion ?? "", it.note ?? ""]
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(kw);
-      })
-      .sort((a, b) => b.createdAt - a.createdAt);
-  }, [items, q, cat]);
+    const base = [...items].sort((a, b) => b.createdAt - a.createdAt);
+    if (categoryFilter === "全部") return base;
+    return base.filter((x) => x.category === categoryFilter);
+  }, [items, categoryFilter]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<Category, WardrobeItem[]>();
-    for (const it of filtered) {
-      map.set(it.category, [...(map.get(it.category) ?? []), it]);
-    }
-    const order: Category[] = ["上衣", "下身", "外套", "鞋子", "配件", "其他"];
-    return order
-      .filter((c) => (map.get(c)?.length ?? 0) > 0)
-      .map((c) => ({ category: c, items: map.get(c)! }));
-  }, [filtered]);
-
-  function addItem() {
-    const n = name.trim();
-    if (!n) return;
-
-    const it: WardrobeItem = {
-      id: uid(),
-      name: n,
-      category,
-      color: color.trim() || undefined,
-      season,
-      occasion,
-      note: note.trim() || undefined,
-      createdAt: Date.now()
-    };
-    setItems((prev) => [it, ...prev]);
-
-    // reset
-    setName("");
-    setColor("");
-    setSeason("四季");
-    setOccasion("不指定");
-    setNote("");
-  }
-
-  function removeItem(id: string) {
+  function remove(id: string) {
     setItems((prev) => prev.filter((x) => x.id !== id));
   }
 
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "wardrobe-items.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importJson(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const parsed = safeParseJson<WardrobeItem[]>(String(reader.result));
-      if (!Array.isArray(parsed)) {
-        alert("檔案格式不對：必須是 JSON array");
-        return;
-      }
-      // basic sanitize
-      const cleaned: WardrobeItem[] = parsed
-        .filter((x) => x && typeof x === "object")
-        .map((x: any) => ({
-          id: String(x.id ?? uid()),
-          name: String(x.name ?? ""),
-          category: (x.category as Category) ?? "其他",
-          color: x.color ? String(x.color) : undefined,
-          season: (x.season as Season) ?? "四季",
-          occasion: (x.occasion as Occasion) ?? "不指定",
-          note: x.note ? String(x.note) : undefined,
-          createdAt: Number(x.createdAt ?? Date.now())
-        }))
-        .filter((x) => x.name.trim().length > 0);
-      setItems(cleaned);
-      alert(`已匯入 ${cleaned.length} 筆`);
+  async function addFromFile(file: File, categoryGuess?: Category) {
+    const dataUrl = await readAsDataURL(file);
+    const name = file.name.replace(/\.(jpg|jpeg|png|webp|gif)$/i, "");
+    const item: WardrobeItem = {
+      id: uid(),
+      name: name || "未命名",
+      category: categoryGuess ?? "上衣",
+      imageDataUrl: dataUrl,
+      createdAt: Date.now(),
     };
-    reader.readAsText(file);
+    setItems((prev) => [item, ...prev]);
   }
 
-  async function recommend() {
-    setRecommendError("");
-    setRecommendText("");
-    setImageBase64("");
-    setImageError("");
+  function addManual() {
+    if (!mName.trim()) return;
+    const item: WardrobeItem = {
+      id: uid(),
+      name: mName.trim(),
+      category: mCategory,
+      color: mColor.trim() || undefined,
+      createdAt: Date.now(),
+    };
+    setItems((prev) => [item, ...prev]);
+    setMName("");
+    setMColor("");
+    setManualOpen(false);
+    setAddOpen(false);
+  }
 
-    if (items.length === 0) {
-      setRecommendError("你目前衣櫃是空的，先新增幾件衣物再推薦。");
-      return;
-    }
+  const presets = useMemo(
+    () => [
+      { name: "長袖打底（白）", category: "內搭" as Category, color: "#e8e3db" },
+      { name: "長袖打底（黑）", category: "內搭" as Category, color: "#3f3b39" },
+      { name: "短袖T恤（白）", category: "上衣" as Category, color: "#efeae2" },
+      { name: "短袖T恤（黑）", category: "上衣" as Category, color: "#4a4543" },
+      { name: "連帽外套（灰）", category: "外套" as Category, color: "#9ea0a2" },
+      { name: "牛仔外套", category: "外套" as Category, color: "#7f8fa3" },
+      { name: "牛仔寬褲", category: "下著" as Category, color: "#86a1b7" },
+      { name: "直筒牛仔褲", category: "下著" as Category, color: "#6f93b3" },
+    ],
+    []
+  );
 
-    setRecommendLoading(true);
+  function addPreset(p: { name: string; category: Category; color: string }) {
+    const item: WardrobeItem = {
+      id: uid(),
+      name: p.name,
+      category: p.category,
+      color: p.color,
+      createdAt: Date.now(),
+    };
+    setItems((prev) => [item, ...prev]);
+    setQuickOpen(false);
+    setTab("wardrobe");
+  }
+
+  async function genRecommend() {
+    setBusy(true);
+    setRecText("");
+    setOutfitImg("");
     try {
       const res = await fetch("/api/recommend", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           wardrobe: items,
-          context: {
-            scene,
-            weather: weather.trim() || undefined
-          }
-        })
+          context: { scene, style, weather, note },
+        }),
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "推薦失敗");
-      setRecommendText(String(data?.text ?? ""));
+      const text = String(data?.text ?? data?.result ?? data?.recommendation ?? "").trim();
+      setRecText(text || "沒有取得推薦文字（請檢查 /api/recommend 回傳格式）");
     } catch (e: any) {
-      setRecommendError(e?.message ?? "推薦失敗");
+      setRecText("推薦呼叫失敗，請確認 Vercel 環境變數與 /api/recommend。");
     } finally {
-      setRecommendLoading(false);
+      setBusy(false);
     }
   }
 
-  async function generateImage() {
-    setImageError("");
-    setImageBase64("");
-    if (!recommendText.trim()) {
-      setImageError("請先產生推薦內容，再生成示意圖。");
-      return;
-    }
-    setImageLoading(true);
+  async function genOutfitImage() {
+    if (!recText.trim()) return;
+    setBusy(true);
+    setOutfitImg("");
     try {
       const res = await fetch("/api/outfit-image", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: recommendText })
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: recText }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "生成圖片失敗");
-      setImageBase64(String(data?.imageBase64 ?? ""));
-    } catch (e: any) {
-      setImageError(e?.message ?? "生成圖片失敗");
+      const url = String(data?.imageDataUrl ?? data?.dataUrl ?? data?.url ?? "").trim();
+      setOutfitImg(url);
+      if (!url) setRecText((t) => t + "\n\n（已呼叫 /api/outfit-image，但未取得 imageDataUrl/dataUrl/url）");
+    } catch {
+      setRecText((t) => t + "\n\n（生成圖片失敗：請確認 /api/outfit-image 與 OpenAI key）");
     } finally {
-      setImageLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <div className="grid">
-      <section className="card">
-        <div className="cardTitle">衣櫃管理</div>
+    <>
+      <main className="safe">
+        {tab === "wardrobe" && (
+          <>
+            <div className="topBrand">
+              <span className="dot" />
+              MY WARDROBE
+            </div>
+            <div className="h1">我的衣櫃日記</div>
+            <div className="sub">今天收集了 {items.length} 件寶貝</div>
 
-        {health ? (
-          health.hasKey ? (
-            <div className="okBox">API Key：已偵測到（若仍 401，代表 Key 無效或貼錯）</div>
-          ) : (
-            <div className="errorBox">尚未偵測到 OPENAI_API_KEY（或部署未更新）</div>
-          )
-        ) : (
-          <div className="notice">檢查環境中…</div>
+            <div className="rowScroll">
+              <button className={categoryFilter === "全部" ? "chip chipActive" : "chip"} onClick={() => setCategoryFilter("全部")}>
+                全部
+              </button>
+              {CATEGORIES.map((c) => (
+                <button key={c} className={categoryFilter === c ? "chip chipActive" : "chip"} onClick={() => setCategoryFilter(c)}>
+                  {c}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid">
+              {filtered.map((x) => (
+                <div className="card" key={x.id}>
+                  <div className="cardImg">
+                    {x.imageDataUrl ? (
+                      <img src={x.imageDataUrl} alt={x.name} />
+                    ) : (
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          display: "grid",
+                          placeItems: "center",
+                          color: "rgba(60,58,54,.55)",
+                          fontWeight: 900,
+                          fontSize: 28,
+                        }}
+                      >
+                        {x.name.slice(0, 1)}
+                      </div>
+                    )}
+                    <div className="badge">{x.category}</div>
+                    <button className="xBtn" onClick={() => remove(x.id)} aria-label="delete">
+                      ✕
+                    </button>
+                  </div>
+                  <div className="cardBody">
+                    <div className="title">{x.name}</div>
+                    <div className="meta">{x.color ? `色系：${x.color}` : "—"}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
-        <div className="label">搜尋</div>
-        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="輸入：白T、牛仔褲、黑鞋、約會…" />
+        {tab === "mix" && (
+          <>
+            <div className="topBrand">
+              <span className="dot" />
+              MIX & MATCH
+            </div>
+            <div className="h1">自選穿搭</div>
+            <div className="sub">先把衣櫃補齊，再來這裡組套裝會最順</div>
 
-        <div className="label">分類篩選</div>
-        <select className="select" value={cat} onChange={(e) => setCat(e.target.value as any)}>
-          <option value="全部">全部</option>
-          <option value="上衣">上衣</option>
-          <option value="下身">下身</option>
-          <option value="外套">外套</option>
-          <option value="鞋子">鞋子</option>
-          <option value="配件">配件</option>
-          <option value="其他">其他</option>
-        </select>
-
-        <hr className="sep" />
-
-        <div className="row">
-          <span className="chip">總數：{items.length}</span>
-          <button className="btn" onClick={() => setItems([])}>清空</button>
-          <button className="btn" onClick={exportJson}>匯出 JSON</button>
-          <label className="btn" style={{ cursor: "pointer" }}>
-            匯入 JSON
-            <input
-              type="file"
-              accept="application/json"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) importJson(f);
-                e.currentTarget.value = "";
-              }}
-            />
-          </label>
-        </div>
-
-        <hr className="sep" />
-
-        <div className="cardTitle">新增衣物</div>
-
-        <div className="label">名稱</div>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="例：白色素T、深藍直筒牛仔褲…" />
-
-        <div className="label">分類</div>
-        <select className="select" value={category} onChange={(e) => setCategory(e.target.value as Category)}>
-          <option value="上衣">上衣</option>
-          <option value="下身">下身</option>
-          <option value="外套">外套</option>
-          <option value="鞋子">鞋子</option>
-          <option value="配件">配件</option>
-          <option value="其他">其他</option>
-        </select>
-
-        <div className="label">顏色（可空）</div>
-        <input className="input" value={color} onChange={(e) => setColor(e.target.value)} placeholder="例：白、黑、深藍、卡其…" />
-
-        <div className="row">
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div className="label">季節</div>
-            <select className="select" value={season} onChange={(e) => setSeason(e.target.value as Season)}>
-              <option value="四季">四季</option>
-              <option value="春">春</option>
-              <option value="夏">夏</option>
-              <option value="秋">秋</option>
-              <option value="冬">冬</option>
-            </select>
-          </div>
-
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div className="label">場合</div>
-            <select className="select" value={occasion} onChange={(e) => setOccasion(e.target.value as Occasion)}>
-              <option value="不指定">不指定</option>
-              <option value="通勤">通勤</option>
-              <option value="休閒">休閒</option>
-              <option value="約會">約會</option>
-              <option value="運動">運動</option>
-              <option value="正式">正式</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="label">備註（可空）</div>
-        <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} placeholder="例：偏寬鬆、材質薄、搭外套好看…" />
-
-        <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn btnPrimary" onClick={addItem} disabled={!name.trim()}>
-            新增
-          </button>
-        </div>
-
-        <hr className="sep" />
-
-        <div className="cardTitle">衣物清單</div>
-
-        {grouped.length === 0 ? (
-          <div className="notice">目前沒有符合條件的衣物。</div>
-        ) : (
-          <div className="list">
-            {grouped.map((g) => (
-              <div key={g.category}>
-                <div className="row" style={{ marginBottom: 6 }}>
-                  <span className="chip">{g.category}</span>
-                  <span className="muted">({g.items.length} 件)</span>
-                </div>
-
-                <div className="list">
-                  {g.items.map((it) => (
-                    <div className="item" key={it.id}>
-                      <div>
-                        <div className="itemTitle">{it.name}</div>
-                        <div className="itemMeta">
-                          {it.color ? <span className="chip">色：{it.color}</span> : null}
-                          {it.season ? <span className="chip">季：{it.season}</span> : null}
-                          {it.occasion && it.occasion !== "不指定" ? <span className="chip">場合：{it.occasion}</span> : null}
-                          {it.note ? <span className="chip">備註</span> : null}
-                        </div>
-                        {it.note ? <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>{it.note}</div> : null}
-                      </div>
-
-                      <div className="row" style={{ justifyContent: "flex-end" }}>
-                        <button className="btn btnDanger" onClick={() => removeItem(it.id)}>
-                          刪除
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <hr className="sep" />
+            <div className="panel" style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>選擇搭配（示意）</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <DashBox label="內搭" />
+                <DashBox label="上衣" />
+                <DashBox label="下著" />
+                <DashBox label="外套" />
+                <DashBox label="鞋子" />
+                <DashBox label="配件" wide />
               </div>
-            ))}
-          </div>
+
+              <div style={{ marginTop: 14 }} className="smallRow">
+                <button className="btnGhost" onClick={() => setTab("wardrobe")}>
+                  去衣櫃選單品
+                </button>
+                <button className="btnPrimary" onClick={() => setTab("inspire")}>
+                  去看今日推薦
+                </button>
+              </div>
+            </div>
+          </>
         )}
-      </section>
 
-      <section className="card">
-        <div className="cardTitle">每日穿搭推薦</div>
+        {tab === "inspire" && (
+          <>
+            <div className="topBrand">
+              <span className="dot" />
+              STYLE GUIDE
+            </div>
+            <div className="h1">穿搭靈感</div>
+            <div className="sub">依情境與風格，從你的衣櫃生成建議</div>
 
-        <div className="notice">
-          推薦會使用你現有衣櫃內容；若缺某類別（例如鞋/外套），會在結果中提醒你該補什麼。
-        </div>
+            <div className="panel">
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>第一步：今天要去哪？</div>
+              <div className="rowScroll">
+                {(["日常", "上班", "約會", "運動", "度假", "派對"] as const).map((x) => (
+                  <button key={x} className={scene === x ? "chip chipActive" : "chip"} onClick={() => setScene(x)}>
+                    {x}
+                  </button>
+                ))}
+              </div>
 
-        <div className="label">情境</div>
-        <select className="select" value={scene} onChange={(e) => setScene(e.target.value as Occasion)}>
-          <option value="通勤">通勤</option>
-          <option value="休閒">休閒</option>
-          <option value="約會">約會</option>
-          <option value="運動">運動</option>
-          <option value="正式">正式</option>
-        </select>
+              <div style={{ fontWeight: 900, margin: "12px 0 10px" }}>第二步：想走什麼風格？</div>
+              <div className="rowScroll">
+                {(["隨機", "極簡", "街頭", "日系", "韓系", "復古", "Smart Casual", "運動風", "老錢風", "Gorpcore"] as const).map((x) => (
+                  <button key={x} className={style === x ? "chip chipActive" : "chip"} onClick={() => setStyle(x)}>
+                    {x}
+                  </button>
+                ))}
+              </div>
 
-        <div className="label">天氣（可空）</div>
-        <input className="input" value={weather} onChange={(e) => setWeather(e.target.value)} placeholder="例：26°C 晴、下雨偏涼…" />
+              <div className="label">天氣（可不填）</div>
+              <input className="input" value={weather} onChange={(e) => setWeather(e.target.value)} placeholder="例如：台北 13°C 小雨" />
 
-        <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn btnPrimary" onClick={recommend} disabled={recommendLoading}>
-            {recommendLoading ? "推薦中…" : "產生今日推薦"}
+              <div className="label">備註（可不填）</div>
+              <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="例如：不想太正式、需要好走的鞋" />
+
+              <div style={{ marginTop: 12 }}>
+                <button className="btnPrimary" onClick={genRecommend} disabled={busy}>
+                  {busy ? "生成中…" : "生成今日穿搭建議"}
+                </button>
+              </div>
+
+              {recText && (
+                <div style={{ marginTop: 12 }}>
+                  <div className="label">推薦結果</div>
+                  <div className="panel" style={{ background: "rgba(255,255,255,.60)" }}>
+                    <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, fontWeight: 750 }}>{recText}</div>
+                  </div>
+
+                  <div style={{ marginTop: 10 }} className="smallRow">
+                    <button className="btnGhost" onClick={genOutfitImage} disabled={busy}>
+                      {busy ? "生成中…" : "虛擬試穿（生成圖片）"}
+                    </button>
+                    <button className="btnGhost" onClick={() => { setRecText(""); setOutfitImg(""); }}>
+                      清除
+                    </button>
+                  </div>
+
+                  {outfitImg && (
+                    <div style={{ marginTop: 12 }} className="panel">
+                      <div style={{ fontWeight: 900, marginBottom: 10 }}>生成圖片</div>
+                      {/* 可能是 dataURL 或 URL */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={outfitImg} alt="outfit" style={{ width: "100%", borderRadius: 18, border: "1px solid rgba(60,58,54,.10)" }} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {tab === "me" && (
+          <>
+            <div className="topBrand">
+              <span className="dot" />
+              PROFILE
+            </div>
+            <div className="h1">個人</div>
+            <div className="sub">資料都存在本機 LocalStorage（目前不做雲端同步）</div>
+
+            <div className="panel">
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>快速操作</div>
+              <div className="smallRow">
+                <button className="btnGhost" onClick={() => setQuickOpen(true)}>
+                  ⚡ 快速加入基礎單品
+                </button>
+                <button
+                  className="btnGhost"
+                  onClick={() => {
+                    if (!confirm("確定要清空衣櫃？")) return;
+                    setItems([]);
+                    setCategoryFilter("全部");
+                  }}
+                >
+                  清空衣櫃
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </main>
+
+      {/* FABs */}
+      <div className="fabRow">
+        <button className="fab fabSoft" onClick={() => setQuickOpen(true)} aria-label="quick add">
+          ⚡
+        </button>
+        <button className="fab" onClick={() => setAddOpen(true)} aria-label="add">
+          <span style={{ fontSize: 34, lineHeight: 1 }}>＋</span>
+        </button>
+      </div>
+
+      {/* Bottom Nav */}
+      <div className="bottomNavWrap">
+        <nav className="bottomNav">
+          <button className={tab === "wardrobe" ? "navItem navActive" : "navItem"} onClick={() => setTab("wardrobe")}>
+            <Icon name="closet" />
+            衣櫃
           </button>
-
-          <button className="btn" onClick={generateImage} disabled={imageLoading || !recommendText.trim()}>
-            {imageLoading ? "生成中…" : "生成穿搭示意圖（可選）"}
+          <button className={tab === "mix" ? "navItem navActive" : "navItem"} onClick={() => setTab("mix")}>
+            <Icon name="layers" />
+            自選
           </button>
-        </div>
+          <button className={tab === "inspire" ? "navItem navActive" : "navItem"} onClick={() => setTab("inspire")}>
+            <Icon name="bag" />
+            靈感
+          </button>
+          <button className={tab === "me" ? "navItem navActive" : "navItem"} onClick={() => setTab("me")}>
+            <Icon name="user" />
+            個人
+          </button>
+        </nav>
+      </div>
 
-        {recommendError ? <div className="errorBox" style={{ marginTop: 10 }}>{recommendError}</div> : null}
-        {recommendText ? (
-          <div className="card" style={{ marginTop: 10 }}>
-            <div className="cardTitle">推薦結果</div>
-            <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit", color: "rgba(255,255,255,0.92)" }}>
-              {recommendText}
-            </pre>
+      {/* Hidden inputs */}
+      <input
+        ref={fileLibraryRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          await addFromFile(f);
+          setAddOpen(false);
+        }}
+      />
+      <input
+        ref={fileCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: "none" }}
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          await addFromFile(f);
+          setAddOpen(false);
+        }}
+      />
+      <input
+        ref={fileAnyRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          await addFromFile(f);
+          setAddOpen(false);
+        }}
+      />
+
+      {/* Add sheet */}
+      <Sheet
+        open={addOpen}
+        title="加入衣櫃"
+        icon={<span>＋</span>}
+        onClose={() => {
+          setAddOpen(false);
+          setManualOpen(false);
+        }}
+      >
+        {!manualOpen ? (
+          <div className="actionList">
+            <button className="actionBtn" onClick={() => fileLibraryRef.current?.click()}>
+              照片圖庫 <span>選相簿照片</span>
+            </button>
+            <button className="actionBtn" onClick={() => fileCameraRef.current?.click()}>
+              拍照 <span>直接開相機</span>
+            </button>
+            <button className="actionBtn" onClick={() => fileAnyRef.current?.click()}>
+              選擇檔案 <span>從檔案挑選</span>
+            </button>
+            <button className="actionBtn" onClick={() => setManualOpen(true)}>
+              手動新增 <span>不附照片</span>
+            </button>
           </div>
-        ) : null}
+        ) : (
+          <>
+            <div className="label">名稱</div>
+            <input className="input" value={mName} onChange={(e) => setMName(e.target.value)} placeholder="例如：溫暖米色針織上衣" />
 
-        {imageError ? <div className="errorBox" style={{ marginTop: 10 }}>{imageError}</div> : null}
-        {imageBase64 ? (
-          <div className="imgWrap">
-            <img alt="outfit" src={`data:image/png;base64,${imageBase64}`} />
-          </div>
-        ) : null}
+            <div className="label">分類</div>
+            <div className="rowScroll">
+              {CATEGORIES.map((c) => (
+                <button
+                  key={c}
+                  className={mCategory === c ? "chip chipActive" : "chip"}
+                  onClick={() => setMCategory(c)}
+                  type="button"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
 
-        <hr className="sep" />
+            <div className="label">色系（可不填，例如：奶茶/灰藍/霧紫）</div>
+            <input className="input" value={mColor} onChange={(e) => setMColor(e.target.value)} placeholder="莫蘭迪色描述" />
 
-        <div className="cardTitle">快速測試</div>
-        <div className="row">
-          <a className="btn" href="/api/health" target="_blank" rel="noreferrer">
-            打開 /api/health
-          </a>
+            <div style={{ marginTop: 12 }} className="smallRow">
+              <button className="btnGhost" onClick={() => setManualOpen(false)}>
+                返回
+              </button>
+              <button className="btnPrimary" onClick={addManual}>
+                儲存
+              </button>
+            </div>
+          </>
+        )}
+      </Sheet>
+
+      {/* Quick add sheet */}
+      <Sheet open={quickOpen} title="快速加入基礎單品" icon={<span>⚡</span>} onClose={() => setQuickOpen(false)}>
+        <div className="presetGrid">
+          {presets.map((p) => (
+            <button key={p.name} className="preset" onClick={() => addPreset(p)} type="button">
+              <div className="presetCircle" style={{ background: p.color }} />
+              <div className="presetLabel">{p.name}</div>
+            </button>
+          ))}
         </div>
-      </section>
+      </Sheet>
+    </>
+  );
+}
+
+function DashBox({ label, wide }: { label: string; wide?: boolean }) {
+  return (
+    <div
+      style={{
+        gridColumn: wide ? "1 / -1" : undefined,
+        border: "2px dashed rgba(60,58,54,.14)",
+        borderRadius: 22,
+        height: wide ? 120 : 130,
+        display: "grid",
+        placeItems: "center",
+        background: "rgba(255,255,255,.40)",
+      }}
+    >
+      <div style={{ color: "rgba(60,58,54,.55)", fontWeight: 900 }}>{label}</div>
     </div>
   );
+}
+
+function readAsDataURL(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }

@@ -1,62 +1,68 @@
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-// 給 Vercel 足夠時間（可選）
-export const maxDuration = 60;
 
-function jsonError(message: string, status = 400) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" }
-  });
-}
+type Category = "上衣" | "下身" | "外套" | "鞋子" | "配件";
+type Season = "春" | "夏" | "秋" | "冬" | "四季";
+
+type Garment = {
+  id: string;
+  name: string;
+  category: Category;
+  color: string;
+  season: Season;
+  note?: string;
+  createdAt: number;
+};
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
-    const prompt = (body?.prompt ?? "").toString().trim();
+    const body = await req.json();
+    const wardrobe: Garment[] = body?.wardrobe ?? [];
+    const occasion: string = body?.occasion ?? "日常通勤";
+    const style: string = body?.style ?? "乾淨俐落";
+    const constraints: string = body?.constraints ?? "";
 
-    if (!prompt) return jsonError("Missing prompt");
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return jsonError("Missing OPENAI_API_KEY on server", 500);
+    if (!apiKey) {
+      return Response.json(
+        { error: "缺少 OPENAI_API_KEY。請到 Vercel → Project Settings → Environment Variables 設定後 Redeploy。" },
+        { status: 500 }
+      );
+    }
 
-    const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
+    // 你可以在 Vercel 設 OPENAI_TEXT_MODEL；沒設就用預設
+    const model = process.env.OPENAI_TEXT_MODEL || "gpt-4o-mini";
 
     const openai = new OpenAI({ apiKey });
 
-    // 產出示意圖：用 base64 回傳，前端直接用 data URL 顯示
-    const result = await openai.images.generate({
+    const prompt = `
+你是穿搭顧問。請根據使用者「衣櫃清單」做出「今天可直接穿出門」的推薦。
+要求：
+1) 必須從衣櫃挑選（若缺某分類，可提出替代/缺口建議）
+2) 輸出要包含：A.主推薦一套（上衣/下身/外套(可選)/鞋/配件(可選)），B.原因（色彩、比例、場合適配），C.替代方案2套（用衣櫃的其他單品），D.缺口建議（如果衣櫃不足）
+3) 以繁體中文輸出，條列清楚，好讀可執行
+4) 場合：${occasion}
+5) 風格：${style}
+6) 限制/偏好：${constraints || "無"}
+衣櫃清單（JSON）：
+${JSON.stringify(wardrobe, null, 2)}
+`.trim();
+
+    const resp = await openai.responses.create({
       model,
-      prompt,
-      size: "1024x1024",
-      // gpt-image-1 支援 b64_json；若你的模型不支援，SDK 可能會改用 url
-      response_format: "b64_json"
-    } as any);
+      input: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    });
 
-    const first = (result as any)?.data?.[0];
-    const b64 = first?.b64_json as string | undefined;
-    const url = first?.url as string | undefined;
-
-    if (b64) {
-      return Response.json({
-        ok: true,
-        model,
-        imageBase64: b64
-      });
-    }
-
-    // 若拿到的是 url（某些情況/模型），也回傳給前端
-    if (url) {
-      return Response.json({
-        ok: true,
-        model,
-        imageUrl: url
-      });
-    }
-
-    return jsonError("Image generation returned empty result", 502);
-  } catch (err: any) {
-    return jsonError(err?.message || "Internal error", 500);
+    const advice = (resp as any)?.output_text || "";
+    return Response.json({ advice });
+  } catch (e: any) {
+    const msg = e?.message || "unknown error";
+    return Response.json({ error: msg }, { status: 500 });
   }
 }

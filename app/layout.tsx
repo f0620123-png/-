@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Wardrobe AI",
-  description: "衣櫃管理 + 日常穿搭推薦",
+  description: "衣櫃管理 + 每日穿搭推薦（Vercel）"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -12,16 +12,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="appShell">
           <header className="topBar">
             <div className="brand">
-              <div className="logoDot" />
-              <div>
-                <div className="brandTitle">Wardrobe AI</div>
-                <div className="brandSub">衣櫃管理 / 日常推薦搭配</div>
-              </div>
+              <div className="brandTitle">Wardrobe AI</div>
+              <div className="brandSub">衣櫃管理 · 每日推薦</div>
             </div>
           </header>
-          <main className="main">{children}</main>
+
+          <main className="container">{children}</main>
+
           <footer className="footer">
-            <span className="muted">Vercel + Next.js</span>
+            <span>LocalStorage 儲存（不含雲端同步）</span>
           </footer>
         </div>
       </body>
